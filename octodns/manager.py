@@ -70,7 +70,8 @@ class Manager(object):
         plan = p[1]
         return len(plan.changes[0].record.zone.name) if plan.changes else 0
 
-    def __init__(self, config_file, max_workers=None, include_meta=False):
+    def __init__(self, config_file, max_workers=None, include_meta=False,
+                 include_ns_records=False):
         self.log.info('__init__: config_file=%s', config_file)
 
         # Read our config file
@@ -88,8 +89,11 @@ class Manager(object):
 
         self.include_meta = include_meta or manager_config.get('include_meta',
                                                                False)
-        self.log.info('__init__:   max_workers=%s', self.include_meta)
-
+        self.log.info('__init__:   include_meta=%s', self.include_meta)
+        include_nsrecords = include_ns_records or \
+            manager_config.get('include_ns_records', False)
+        Zone.include_nsrecords = include_nsrecords
+        self.log.info('__init__:   include_ns_records=%s', include_nsrecords)
         self.log.debug('__init__:   configuring providers')
         self.providers = {}
         for provider_name, provider_config in self.config['providers'].items():
