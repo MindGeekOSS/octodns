@@ -12,6 +12,7 @@ from incf.countryutils.transformations import cca_to_ctca2
 from uuid import uuid4
 import logging
 import re
+import copy
 
 from ..record import Record, Update
 from .base import BaseProvider
@@ -44,6 +45,7 @@ class _Route53Record(object):
         self.fqdn = record.fqdn
         self._type = record._type
         self.ttl = record.ttl
+        # self.healthcheck = record.healthcheck
 
         values_for = getattr(self, '_values_for_{}'.format(self._type))
         self.values = values_for(record)
@@ -156,8 +158,16 @@ class _Route53GeoRecord(_Route53Record):
         super(_Route53GeoRecord, self).__init__(provider, record, creating)
         self.geo = geo
 
-        self.health_check_id = provider.get_health_check_id(record, ident,
-                                                            geo, creating)
+        gr = copy.copy(record)
+        gr.values = geo.values
+        values_for = getattr(self, '_values_for_{}'.format(self._type))
+        self.geo_values = values_for(gr)
+
+        # if self.healthcheck:
+        #    self.health_check_id = provider.get_health_check_id(record, ident,
+        #                                                    geo, creating)
+        # else:
+        self.health_check_id = None
 
     def mod(self, action):
         geo = self.geo
@@ -166,7 +176,7 @@ class _Route53GeoRecord(_Route53Record):
             'GeoLocation': {
                 'CountryCode': '*'
             },
-            'ResourceRecords': [{'Value': v} for v in geo.values],
+            'ResourceRecords': [{'Value': v} for v in self.geo_values],
             'SetIdentifier': geo.code,
             'TTL': self.ttl,
             'Type': self._type,
@@ -346,11 +356,15 @@ class Route53Provider(BaseProvider):
         }
 
     def _data_for_single(self, rrset):
-        return {
+        ret = {
             'type': rrset['Type'],
             'value': rrset['ResourceRecords'][0]['Value'],
             'ttl': int(rrset['TTL'])
         }
+        geo = self._parse_geo(rrset)
+        if geo:
+            ret['geo'] = geo
+        return ret
 
     _data_for_PTR = _data_for_single
     _data_for_CNAME = _data_for_single
@@ -358,12 +372,16 @@ class Route53Provider(BaseProvider):
     _fix_semicolons = re.compile(r'(?<!\\);')
 
     def _data_for_quoted(self, rrset):
-        return {
+        ret = {
             'type': rrset['Type'],
             'values': [self._fix_semicolons.sub('\\;', rr['Value'][1:-1])
                        for rr in rrset['ResourceRecords']],
             'ttl': int(rrset['TTL'])
         }
+        geo = self._parse_geo(rrset)
+        if geo:
+            ret['geo'] = geo
+        return ret
 
     _data_for_TXT = _data_for_quoted
     _data_for_SPF = _data_for_quoted
@@ -494,7 +512,10 @@ class Route53Provider(BaseProvider):
                         geo = {}
                         for d in data:
                             try:
-                                geo[d['geo']] = d['values']
+                                if 'values' in d:
+                                    geo[d['geo']] = d['values']
+                                else:
+                                    geo[d['geo']] = [d['value']]
                             except KeyError:
                                 primary = d
                         data = primary
@@ -619,7 +640,9 @@ class Route53Provider(BaseProvider):
         self.log.debug('_gc_health_checks: record=%s', record)
         # Find the health checks we're using for the new route53 records
         in_use = set()
-        for r in new:
+        gen = (r for r in new if hasattr(r, 'healthcheck') and
+               r.healthcheck is True)
+        for r in gen:
             hc_id = getattr(r, 'health_check_id', False)
             if hc_id:
                 in_use.add(hc_id)
@@ -712,6 +735,10 @@ class Route53Provider(BaseProvider):
                 continue
             if not getattr(record, 'geo', False):
                 # record doesn't support geo, we don't need to inspect it
+                continue
+            if not hasattr(record, 'healthcheck') or \
+               record.healthcheck is False:
+                # record in config says no healthcheck is required
                 continue
             # OK this is a record we don't have change for that does have geo
             # information. We need to look and see if it needs to be updated
