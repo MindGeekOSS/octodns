@@ -125,6 +125,8 @@ class Record(object):
         self.name = unicode(name).lower() if name else name
         self.source = source
         self.ttl = int(data['ttl'])
+        # self.healthcheck = bool(data['healthcheck']) \
+        #                   if 'healthcheck' in data else False
 
         octodns = data.get('octodns', {})
         self.ignored = octodns.get('ignored', False)
@@ -205,6 +207,45 @@ class GeoValue(object):
                                           self.subdivision_code, self.values)
 
 
+class _ValueMixin(object):
+
+    @classmethod
+    def validate(cls, name, data):
+        reasons = super(_ValueMixin, cls).validate(name, data)
+        value = None
+        try:
+            value = data['value']
+            if value is None:
+                reasons.append('missing value')
+            elif value == '':
+                reasons.append('empty value')
+        except KeyError:
+            reasons.append('missing value')
+        if value:
+            reasons.extend(cls._validate_value(value))
+        return reasons
+
+    def __init__(self, zone, name, data, source=None):
+        super(_ValueMixin, self).__init__(zone, name, data, source=source)
+        self.value = self._process_value(data['value'])
+
+    def changes(self, other, target):
+        if self.value != other.value:
+            return Update(self, other)
+        return super(_ValueMixin, self).changes(other, target)
+
+    def _data(self):
+        ret = super(_ValueMixin, self)._data()
+        if self.value:
+            ret['value'] = getattr(self.value, 'data', self.value)
+        return ret
+
+    def __repr__(self):
+        return '<{} {} {}, {}, {}>'.format(self.__class__.__name__,
+                                           self._type, self.ttl,
+                                           self.fqdn, self.value)
+
+
 class _ValuesMixin(object):
 
     @classmethod
@@ -281,7 +322,7 @@ class _ValuesMixin(object):
                                            self.fqdn, values)
 
 
-class _GeoMixin(_ValuesMixin):
+class _GeoMixin(object):
     '''
     Adds GeoDNS support to a record.
 
@@ -332,14 +373,18 @@ class _GeoMixin(_ValuesMixin):
 
     def __repr__(self):
         if self.geo:
+            try:
+                values = self.values
+            except AttributeError:
+                values = self.value
             return '<{} {} {}, {}, {}, {}>'.format(self.__class__.__name__,
                                                    self._type, self.ttl,
-                                                   self.fqdn, self.values,
+                                                   self.fqdn, values,
                                                    self.geo)
         return super(_GeoMixin, self).__repr__()
 
 
-class ARecord(_GeoMixin, Record):
+class ARecord(_GeoMixin, _ValuesMixin, Record):
     _type = 'A'
 
     @classmethod
@@ -355,7 +400,7 @@ class ARecord(_GeoMixin, Record):
         return values
 
 
-class AaaaRecord(_GeoMixin, Record):
+class AaaaRecord(_GeoMixin, _ValuesMixin, Record):
     _type = 'AAAA'
 
     @classmethod
@@ -369,45 +414,6 @@ class AaaaRecord(_GeoMixin, Record):
 
     def _process_values(self, values):
         return values
-
-
-class _ValueMixin(object):
-
-    @classmethod
-    def validate(cls, name, data):
-        reasons = super(_ValueMixin, cls).validate(name, data)
-        value = None
-        try:
-            value = data['value']
-            if value is None:
-                reasons.append('missing value')
-            elif value == '':
-                reasons.append('empty value')
-        except KeyError:
-            reasons.append('missing value')
-        if value:
-            reasons.extend(cls._validate_value(value))
-        return reasons
-
-    def __init__(self, zone, name, data, source=None):
-        super(_ValueMixin, self).__init__(zone, name, data, source=source)
-        self.value = self._process_value(data['value'])
-
-    def changes(self, other, target):
-        if self.value != other.value:
-            return Update(self, other)
-        return super(_ValueMixin, self).changes(other, target)
-
-    def _data(self):
-        ret = super(_ValueMixin, self)._data()
-        if self.value:
-            ret['value'] = getattr(self.value, 'data', self.value)
-        return ret
-
-    def __repr__(self):
-        return '<{} {} {}, {}, {}>'.format(self.__class__.__name__,
-                                           self._type, self.ttl,
-                                           self.fqdn, self.value)
 
 
 class AliasRecord(_ValueMixin, Record):
@@ -479,7 +485,7 @@ class CaaRecord(_ValuesMixin, Record):
         return [CaaValue(v) for v in values]
 
 
-class CnameRecord(_ValueMixin, Record):
+class CnameRecord(_GeoMixin, _ValueMixin, Record):
     _type = 'CNAME'
 
     @classmethod
@@ -859,5 +865,5 @@ class SrvRecord(_ValuesMixin, Record):
         return [SrvValue(v) for v in values]
 
 
-class TxtRecord(_ChunkedValuesMixin, Record):
+class TxtRecord(_GeoMixin, _ChunkedValuesMixin, Record):
     _type = 'TXT'
