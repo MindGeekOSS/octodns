@@ -10,7 +10,7 @@ from dyn.tm.errors import DynectGetError
 from dyn.tm.services.dsf import DSFARecord, DSFAAAARecord, DSFFailoverChain, \
     DSFMonitor, DSFNode, DSFRecordSet, DSFResponsePool, DSFRuleset, \
     TrafficDirector, get_all_dsf_monitors, get_all_dsf_services, \
-    get_response_pool
+    get_response_pool, DSFCNAMERecord, DSFTXTRecord
 from dyn.tm.session import DynectSession
 from dyn.tm.zones import Zone as DynZone
 from logging import getLogger
@@ -442,8 +442,22 @@ class DynProvider(BaseProvider):
                             code, _ = ruleset.label.split(':', 1)
                         except ValueError:
                             continue
-                        values = [r.address for r in record_set.records]
+
+                        def _filter_records(r):
+                            if hasattr(r, 'address'):
+                                return r.address
+                            elif hasattr(r, 'cname'):
+                                return r.cname
+                            elif hasattr(r, 'txtdata'):
+                                return r.txtdata
+                            else:
+                                return None
+                        values = map(_filter_records, record_set.records)
+
                         geo[code] = values
+
+                if not len(geo):
+                    continue
 
                 name = zone.hostname_from_fqdn(fqdn)
                 record = Record.new(zone, name, data, source=self)
@@ -662,16 +676,31 @@ class DynProvider(BaseProvider):
             if pool.label != label:
                 continue
             records = pool.rs_chains[0].record_sets[0].records
-            record_values = sorted([r.address for r in records])
+
+            def _filter_records(r):
+                if hasattr(r, 'address'):
+                    return r.address
+                elif hasattr(r, 'cname'):
+                    return r.cname
+                elif hasattr(r, 'txtdata'):
+                    return r.txtdata
+                else:
+                    return None
+            record_values = sorted(map(_filter_records, records))
             if record_values == values:
                 # it's a match
                 return pool
         # we need to create the pool
         _class = {
             'A': DSFARecord,
-            'AAAA': DSFAAAARecord
+            'AAAA': DSFAAAARecord,
+            'CNAME': DSFCNAMERecord,
+            'TXT': DSFTXTRecord
         }[_type]
-        records = [_class(v) for v in values]
+        if isinstance(values, list):
+            records = [_class(v) for v in values]
+        else:
+            records = [_class(values)]
         record_set = DSFRecordSet(_type, label, serve_count=len(records),
                                   records=records, dsf_monitor_id=monitor_id)
         chain = DSFFailoverChain(label, record_sets=[record_set])
@@ -735,8 +764,9 @@ class DynProvider(BaseProvider):
         label = 'default:{}'.format(uuid4().hex)
         ruleset = DSFRuleset(label, 'always', [])
         ruleset.create(td, index=insert_at)
+        new_values = new.values if hasattr(new, 'values') else new.value
         pool = self._find_or_create_pool(td, pools, 'default', new._type,
-                                         new.values)
+                                         new_values)
         # There's no way in the client lib to create a ruleset with an existing
         # pool (ref'd by id) so we have to do this round-a-bout.
         active_pools = {
@@ -744,7 +774,8 @@ class DynProvider(BaseProvider):
         }
         ruleset.add_response_pool(pool.response_pool_id)
 
-        monitor_id = self._traffic_director_monitor(new).dsf_monitor_id
+        monitor_id = None
+        # self._traffic_director_monitor(new.fqdn).dsf_monitor_id
         # Geos ordered least to most specific so that parents will always be
         # created before their children (and thus can be referenced
         geos = sorted(new.geo.items(), key=lambda d: d[0])
