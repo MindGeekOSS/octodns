@@ -453,11 +453,7 @@ class DynProvider(BaseProvider):
                             else:
                                 return None
                         values = map(_filter_records, record_set.records)
-
                         geo[code] = values
-
-                if not len(geo):
-                    continue
 
                 name = zone.hostname_from_fqdn(fqdn)
                 record = Record.new(zone, name, data, source=self)
