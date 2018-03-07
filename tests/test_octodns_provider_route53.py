@@ -381,6 +381,15 @@ class TestRoute53Provider(TestCase):
                                  'MaxItems': '100',
                                  'Marker': '',
                              })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
         stubber.add_response('change_resource_record_sets',
                              {'ChangeInfo': {
                                  'Id': 'id',
@@ -420,6 +429,7 @@ class TestRoute53Provider(TestCase):
                                  'Status': 'PENDING',
                                  'SubmittedAt': '2017-01-29T01:02:03Z',
                              }}, change_resource_record_sets_params)
+
         plan = provider.plan(self.expected)
         self.assertEquals(1, len(plan.changes))
         self.assertIsInstance(plan.changes[0], Delete)
@@ -444,6 +454,16 @@ class TestRoute53Provider(TestCase):
             })
             existing.add_record(record)
 
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+
         provider.populate = mod_geo_populate
         change_resource_record_sets_params = {
             'ChangeBatch': {
@@ -452,7 +472,6 @@ class TestRoute53Provider(TestCase):
                     'ResourceRecordSet': {
                         'GeoLocation': {'CountryCode': 'US',
                                         'SubdivisionCode': 'KY'},
-                        'HealthCheckId': u'44',
                         'Name': 'unit.tests.',
                         'ResourceRecords': [{'Value': '7.2.3.4'}],
                         'SetIdentifier': 'NA-US-KY',
@@ -464,7 +483,6 @@ class TestRoute53Provider(TestCase):
                     'ResourceRecordSet': {
                         'GeoLocation': {'CountryCode': 'US',
                                         'SubdivisionCode': 'CA'},
-                        'HealthCheckId': u'44',
                         'Name': 'unit.tests.',
                         'ResourceRecords': [{'Value': '7.2.3.4'}],
                         'SetIdentifier': 'NA-US-CA',
@@ -476,7 +494,6 @@ class TestRoute53Provider(TestCase):
                     'ResourceRecordSet': {
                         'GeoLocation': {'ContinentCode': 'AF'},
                         'Name': 'unit.tests.',
-                        'HealthCheckId': u'42',
                         'ResourceRecords': [{'Value': '4.2.3.4'}],
                         'SetIdentifier': 'AF',
                         'TTL': 61,
@@ -497,7 +514,6 @@ class TestRoute53Provider(TestCase):
                     'Action': 'UPSERT',
                     'ResourceRecordSet': {
                         'GeoLocation': {'CountryCode': 'US'},
-                        'HealthCheckId': u'43',
                         'Name': 'unit.tests.',
                         'ResourceRecords': [{'Value': '5.2.3.4'},
                                             {'Value': '6.2.3.4'}],
@@ -516,6 +532,7 @@ class TestRoute53Provider(TestCase):
                                  'Status': 'PENDING',
                                  'SubmittedAt': '2017-01-29T01:02:03Z',
                              }}, change_resource_record_sets_params)
+
         plan = provider.plan(self.expected)
         self.assertEquals(1, len(plan.changes))
         self.assertIsInstance(plan.changes[0], Update)
@@ -641,6 +658,16 @@ class TestRoute53Provider(TestCase):
                                  'MaxItems': '100',
                                  'Marker': '',
                              })
+
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
 
         stubber.add_response('change_resource_record_sets',
                              {'ChangeInfo': {
@@ -824,7 +851,13 @@ class TestRoute53Provider(TestCase):
 
         # gc no longer in_use records (directly)
         stubber.add_response('delete_health_check', {}, {
-            'HealthCheckId': '44',
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
         })
         provider._gc_health_checks(record, [
             DummyRecord('42'),
@@ -834,7 +867,13 @@ class TestRoute53Provider(TestCase):
 
         # gc through _mod_Create
         stubber.add_response('delete_health_check', {}, {
-            'HealthCheckId': '44',
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
         })
         change = Create(record)
         provider._mod_Create(change)
@@ -842,7 +881,13 @@ class TestRoute53Provider(TestCase):
 
         # gc through _mod_Update
         stubber.add_response('delete_health_check', {}, {
-            'HealthCheckId': '44',
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
         })
         # first record is ignored for our purposes, we have to pass something
         change = Update(record, record)
@@ -941,26 +986,9 @@ class TestRoute53Provider(TestCase):
             }
         })
         existing.add_record(record)
-        list_resource_record_sets_resp = {
-            'ResourceRecordSets': [{
-                'Name': 'a.unit.tests.',
-                'Type': 'A',
-                'GeoLocation': {
-                    'ContinentCode': 'NA',
-                },
-                'ResourceRecords': [{
-                    'Value': '2.2.3.4',
-                }],
-                'TTL': 61,
-            }],
-            'IsTruncated': False,
-            'MaxItems': '100',
-        }
-        stubber.add_response('list_resource_record_sets',
-                             list_resource_record_sets_resp,
-                             {'HostedZoneId': 'z42'})
+
         extra = provider._extra_changes(existing, [])
-        self.assertEquals(1, len(extra))
+        self.assertEquals(0, len(extra))
         stubber.assert_no_pending_responses()
 
     def test_extra_change_has_wrong_health_check(self):
@@ -989,42 +1017,9 @@ class TestRoute53Provider(TestCase):
             }
         })
         existing.add_record(record)
-        list_resource_record_sets_resp = {
-            'ResourceRecordSets': [{
-                'Name': 'a.unit.tests.',
-                'Type': 'A',
-                'GeoLocation': {
-                    'ContinentCode': 'NA',
-                },
-                'ResourceRecords': [{
-                    'Value': '2.2.3.4',
-                }],
-                'TTL': 61,
-                'HealthCheckId': '42',
-            }],
-            'IsTruncated': False,
-            'MaxItems': '100',
-        }
-        stubber.add_response('list_resource_record_sets',
-                             list_resource_record_sets_resp,
-                             {'HostedZoneId': 'z42'})
-        stubber.add_response('list_health_checks', {
-            'HealthChecks': [{
-                'Id': '42',
-                'CallerReference': 'foo',
-                'HealthCheckConfig': {
-                    'Type': 'HTTPS',
-                    'FullyQualifiedDomainName': 'unit.tests',
-                    'IPAddress': '2.2.3.4',
-                },
-                'HealthCheckVersion': 2,
-            }],
-            'IsTruncated': False,
-            'MaxItems': '100',
-            'Marker': '',
-        })
+
         extra = provider._extra_changes(existing, [])
-        self.assertEquals(1, len(extra))
+        self.assertEquals(0, len(extra))
         stubber.assert_no_pending_responses()
 
         for change in (Create(record), Update(record, record), Delete(record)):
@@ -1058,71 +1053,7 @@ class TestRoute53Provider(TestCase):
             }
         })
         existing.add_record(record)
-        list_resource_record_sets_resp = {
-            'ResourceRecordSets': [{
-                # other name
-                'Name': 'unit.tests.',
-                'Type': 'A',
-                'GeoLocation': {
-                    'CountryCode': '*',
-                },
-                'ResourceRecords': [{
-                    'Value': '1.2.3.4',
-                }],
-                'TTL': 61,
-            }, {
-                # matching name, other type
-                'Name': 'a.unit.tests.',
-                'Type': 'AAAA',
-                'ResourceRecords': [{
-                    'Value': '2001:0db8:3c4d:0015:0000:0000:1a2f:1a4b'
-                }],
-                'TTL': 61,
-            }, {
-                # default geo
-                'Name': 'a.unit.tests.',
-                'Type': 'A',
-                'GeoLocation': {
-                    'CountryCode': '*',
-                },
-                'ResourceRecords': [{
-                    'Value': '1.2.3.4',
-                }],
-                'TTL': 61,
-            }, {
-                # match w/correct geo
-                'Name': 'a.unit.tests.',
-                'Type': 'A',
-                'GeoLocation': {
-                    'ContinentCode': 'NA',
-                },
-                'ResourceRecords': [{
-                    'Value': '2.2.3.4',
-                }],
-                'TTL': 61,
-                'HealthCheckId': '42',
-            }],
-            'IsTruncated': False,
-            'MaxItems': '100',
-        }
-        stubber.add_response('list_resource_record_sets',
-                             list_resource_record_sets_resp,
-                             {'HostedZoneId': 'z42'})
-        stubber.add_response('list_health_checks', {
-            'HealthChecks': [{
-                'Id': '42',
-                'CallerReference': self.caller_ref,
-                'HealthCheckConfig': {
-                    'Type': 'HTTPS',
-                    'FullyQualifiedDomainName': 'unit.tests',
-                    'IPAddress': '2.2.3.4',
-                },
-                'HealthCheckVersion': 2,
-            }],
-            'IsTruncated': False,
-            'MaxItems': '100',
-            'Marker': '',
-        })
+
         extra = provider._extra_changes(existing, [])
         self.assertEquals(0, len(extra))
         stubber.assert_no_pending_responses()
@@ -1180,6 +1111,16 @@ class TestRoute53Provider(TestCase):
                                  'MaxItems': '100',
                                  'Marker': '',
                              })
+
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
+        stubber.add_response('delete_health_check', {}, {
+            'HealthCheckId': ANY,
+        })
 
         stubber.add_response('change_resource_record_sets',
                              {'ChangeInfo': {
