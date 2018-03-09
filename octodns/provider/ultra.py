@@ -565,6 +565,7 @@ class UltraProvider(BaseProvider):
 
     def _params_for_TXT(self, record):
         values = [v.replace('\;', ';') for v in record.chunked_values]
+        values = [v[1:-1] if v and v[0] == '"' else v for v in values]
         yield {
             'ttl': record.ttl,
             'ownerName': record.name,
