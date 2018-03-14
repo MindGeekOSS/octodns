@@ -125,8 +125,6 @@ class Record(object):
         self.name = unicode(name).lower() if name else name
         self.source = source
         self.ttl = int(data['ttl'])
-        # self.healthcheck = bool(data['healthcheck']) \
-        #                   if 'healthcheck' in data else False
 
         octodns = data.get('octodns', {})
         self.ignored = octodns.get('ignored', False)
@@ -343,7 +341,6 @@ class _GeoMixin(object):
             pass
         return reasons
 
-    # TODO: support 'value' as well
     # TODO: move away from "data" hash to strict params, it's kind of leaking
     # the yaml implementation into here and then forcing it back out into
     # non-yaml providers during input
@@ -384,7 +381,121 @@ class _GeoMixin(object):
         return super(_GeoMixin, self).__repr__()
 
 
-class ARecord(_GeoMixin, _ValuesMixin, Record):
+class _HealthcheckMixin(object):
+    '''
+    Adds healthcheck support to a record.
+
+    Must be included before `Record`.
+    '''
+
+    @classmethod
+    def validate_HTTPS(cls, reasons, data):
+        return _HealthcheckMixin.validate_HTTP(reasons, data)
+
+    @classmethod
+    def validate_HTTP(cls, reasons, data):
+        try:
+            healthcheck = data['healthcheck']
+
+            host = healthcheck['host']
+            if not host:
+                reasons.append('missing host')
+
+            path = healthcheck['path']
+            if not path:
+                reasons.append('missing path')
+
+        except KeyError as excpt:
+            reasons.append('missing fields: {}'.format(excpt))
+
+        return reasons
+
+    @classmethod
+    def validate_TCP(cls, reasons, data):
+        healthcheck = data['healthcheck']
+        port = int(healthcheck['port'])
+        if not port:
+            reasons.append('missing port')
+        return reasons
+
+    @classmethod
+    def validate(cls, name, data):
+        reasons = super(_HealthcheckMixin, cls).validate(name, data)
+        try:
+            healthcheck = data['healthcheck']
+        except KeyError:
+            healthcheck = {}
+
+        if healthcheck:
+            try:
+                probe_type = healthcheck['type']
+                if not probe_type:
+                    reasons.append('missing probe type')
+                else:
+                    validate_for = getattr(_HealthcheckMixin,
+                                           'validate_{}'.format(probe_type))
+                    reasons = validate_for(reasons, data)
+
+                retries = int(healthcheck['retries'])
+                if not retries:
+                    reasons.append('missing retries')
+
+                interval = int(healthcheck['interval'])
+                if not interval or 0 > int(interval):
+                    reasons.append('missing interval')
+                # The 'TTL' value is limited to 1/2 of
+                #    the Health monitoring interval.
+                if interval and data['ttl'] > (interval / 2):
+                    reasons.append('TTL is limited to 1/2 \
+                                    of the healthcheck interval')
+
+                backup = healthcheck['backup']
+                if not backup:
+                    reasons.append('missing backup')
+                else:
+                    # backup needs to be a valid IP
+                    reasons.extend(cls._validate_value(backup))
+            except KeyError as excpt:
+                reasons.append('missing fields: {}'.format(excpt))
+
+        return reasons
+
+    # TODO: move away from "data" hash to strict params, it's kind of leaking
+    # the yaml implementation into here and then forcing it back out into
+    # non-yaml providers during input
+    def __init__(self, zone, name, data, *args, **kwargs):
+        super(_HealthcheckMixin, self).__init__(zone, name, data,
+                                                *args, **kwargs)
+        try:
+            self.healthcheck = data['healthcheck']
+        except KeyError:
+            self.healthcheck = {}
+
+    def _data(self):
+        ret = super(_HealthcheckMixin, self)._data()
+        if self.healthcheck:
+            ret['healthcheck'] = self.healthcheck
+        return ret
+
+    def changes(self, other, target):
+        if self.healthcheck != other.healthcheck:
+            return Update(self, other)
+        return super(_HealthcheckMixin, self).changes(other, target)
+
+    def __repr__(self):
+        if self.healthcheck:
+            try:
+                values = self.values
+            except AttributeError:
+                values = self.value
+            return '<{} {} {}, {}, {}, {}>'.format(self.__class__.__name__,
+                                                   self._type, self.ttl,
+                                                   self.fqdn, values,
+                                                   self.healthcheck)
+        return super(_HealthcheckMixin, self).__repr__()
+
+
+class ARecord(_HealthcheckMixin, _GeoMixin, _ValuesMixin, Record):
     _type = 'A'
 
     @classmethod
@@ -400,7 +511,7 @@ class ARecord(_GeoMixin, _ValuesMixin, Record):
         return values
 
 
-class AaaaRecord(_GeoMixin, _ValuesMixin, Record):
+class AaaaRecord(_HealthcheckMixin, _GeoMixin, _ValuesMixin, Record):
     _type = 'AAAA'
 
     @classmethod
