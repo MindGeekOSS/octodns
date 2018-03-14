@@ -205,6 +205,45 @@ class GeoValue(object):
                                           self.subdivision_code, self.values)
 
 
+class _ValueMixin(object):
+
+    @classmethod
+    def validate(cls, name, data):
+        reasons = super(_ValueMixin, cls).validate(name, data)
+        value = None
+        try:
+            value = data['value']
+            if value is None:
+                reasons.append('missing value')
+            elif value == '':
+                reasons.append('empty value')
+        except KeyError:
+            reasons.append('missing value')
+        if value:
+            reasons.extend(cls._validate_value(value))
+        return reasons
+
+    def __init__(self, zone, name, data, source=None):
+        super(_ValueMixin, self).__init__(zone, name, data, source=source)
+        self.value = self._process_value(data['value'])
+
+    def changes(self, other, target):
+        if self.value != other.value:
+            return Update(self, other)
+        return super(_ValueMixin, self).changes(other, target)
+
+    def _data(self):
+        ret = super(_ValueMixin, self)._data()
+        if self.value:
+            ret['value'] = getattr(self.value, 'data', self.value)
+        return ret
+
+    def __repr__(self):
+        return '<{} {} {}, {}, {}>'.format(self.__class__.__name__,
+                                           self._type, self.ttl,
+                                           self.fqdn, self.value)
+
+
 class _ValuesMixin(object):
 
     @classmethod
@@ -280,7 +319,7 @@ class _ValuesMixin(object):
                                            self.fqdn, values)
 
 
-class _GeoMixin(_ValuesMixin):
+class _GeoMixin(object):
     '''
     Adds GeoDNS support to a record.
 
@@ -301,7 +340,6 @@ class _GeoMixin(_ValuesMixin):
             pass
         return reasons
 
-    # TODO: support 'value' as well
     # TODO: move away from "data" hash to strict params, it's kind of leaking
     # the yaml implementation into here and then forcing it back out into
     # non-yaml providers during input
@@ -331,14 +369,132 @@ class _GeoMixin(_ValuesMixin):
 
     def __repr__(self):
         if self.geo:
+            try:
+                values = self.values
+            except AttributeError:
+                values = self.value
             return '<{} {} {}, {}, {}, {}>'.format(self.__class__.__name__,
                                                    self._type, self.ttl,
-                                                   self.fqdn, self.values,
+                                                   self.fqdn, values,
                                                    self.geo)
         return super(_GeoMixin, self).__repr__()
 
 
-class ARecord(_GeoMixin, Record):
+class _HealthcheckMixin(object):
+    '''
+    Adds healthcheck support to a record.
+
+    Must be included before `Record`.
+    '''
+
+    @classmethod
+    def validate_HTTPS(cls, reasons, data):
+        return _HealthcheckMixin.validate_HTTP(reasons, data)
+
+    @classmethod
+    def validate_HTTP(cls, reasons, data):
+        try:
+            healthcheck = data['healthcheck']
+
+            host = healthcheck['host']
+            if not host:
+                reasons.append('missing host')
+
+            path = healthcheck['path']
+            if not path:
+                reasons.append('missing path')
+
+        except KeyError as excpt:
+            reasons.append('missing fields: {}'.format(excpt))
+
+        return reasons
+
+    @classmethod
+    def validate_TCP(cls, reasons, data):
+        healthcheck = data['healthcheck']
+        port = int(healthcheck['port'])
+        if not port:
+            reasons.append('missing port')
+        return reasons
+
+    @classmethod
+    def validate(cls, name, data):
+        reasons = super(_HealthcheckMixin, cls).validate(name, data)
+        try:
+            healthcheck = data['healthcheck']
+        except KeyError:
+            healthcheck = {}
+
+        if healthcheck:
+            try:
+                probe_type = healthcheck['type']
+                if not probe_type:
+                    reasons.append('missing probe type')
+                else:
+                    validate_for = getattr(_HealthcheckMixin,
+                                           'validate_{}'.format(probe_type))
+                    reasons = validate_for(reasons, data)
+
+                retries = int(healthcheck['retries'])
+                if not retries:
+                    reasons.append('missing retries')
+
+                interval = int(healthcheck['interval'])
+                if not interval or 0 > int(interval):
+                    reasons.append('missing interval')
+                # The 'TTL' value is limited to 1/2 of
+                #    the Health monitoring interval.
+                if interval and data['ttl'] > (interval / 2):
+                    reasons.append('TTL is limited to 1/2 \
+                                    of the healthcheck interval')
+
+                backup = healthcheck['backup']
+                if not backup:
+                    reasons.append('missing backup')
+                else:
+                    # backup needs to be a valid IP
+                    reasons.extend(cls._validate_value(backup))
+            except KeyError as excpt:
+                reasons.append('missing fields: {}'.format(excpt))
+
+        return reasons
+
+    # TODO: move away from "data" hash to strict params, it's kind of leaking
+    # the yaml implementation into here and then forcing it back out into
+    # non-yaml providers during input
+    def __init__(self, zone, name, data, *args, **kwargs):
+        super(_HealthcheckMixin, self).__init__(zone, name, data,
+                                                *args, **kwargs)
+        try:
+            self.healthcheck = data['healthcheck']
+        except KeyError:
+            self.healthcheck = {}
+
+    def _data(self):
+        ret = super(_HealthcheckMixin, self)._data()
+        if self.healthcheck:
+            ret['healthcheck'] = self.healthcheck
+        return ret
+
+    def changes(self, other, target):
+        if self.healthcheck != other.healthcheck:
+            return Update(self, other)
+        return super(_HealthcheckMixin, self).changes(other, target)
+
+    def __repr__(self):
+        if self.healthcheck:
+            try:
+                values = self.values
+            except AttributeError:
+                values = self.value
+            return '<{} {} {}, {}, {}, {}>'.format(self.__class__.__name__,
+                                                   self._type, self.ttl,
+                                                   self.fqdn, values,
+                                                   self.healthcheck)
+        return super(_HealthcheckMixin, self).__repr__()
+
+
+class ARecord(_HealthcheckMixin, _GeoMixin, _ValuesMixin, Record):
     _type = 'A'
 
     @classmethod
@@ -354,7 +510,7 @@ class ARecord(_GeoMixin, Record):
         return values
 
 
-class AaaaRecord(_GeoMixin, Record):
+class AaaaRecord(_HealthcheckMixin, _GeoMixin, _ValuesMixin, Record):
     _type = 'AAAA'
 
     @classmethod
@@ -368,45 +524,6 @@ class AaaaRecord(_GeoMixin, Record):
 
     def _process_values(self, values):
         return values
-
-
-class _ValueMixin(object):
-
-    @classmethod
-    def validate(cls, name, data):
-        reasons = super(_ValueMixin, cls).validate(name, data)
-        value = None
-        try:
-            value = data['value']
-            if value is None:
-                reasons.append('missing value')
-            elif value == '':
-                reasons.append('empty value')
-        except KeyError:
-            reasons.append('missing value')
-        if value:
-            reasons.extend(cls._validate_value(value))
-        return reasons
-
-    def __init__(self, zone, name, data, source=None):
-        super(_ValueMixin, self).__init__(zone, name, data, source=source)
-        self.value = self._process_value(data['value'])
-
-    def changes(self, other, target):
-        if self.value != other.value:
-            return Update(self, other)
-        return super(_ValueMixin, self).changes(other, target)
-
-    def _data(self):
-        ret = super(_ValueMixin, self)._data()
-        if self.value:
-            ret['value'] = getattr(self.value, 'data', self.value)
-        return ret
-
-    def __repr__(self):
-        return '<{} {} {}, {}, {}>'.format(self.__class__.__name__,
-                                           self._type, self.ttl,
-                                           self.fqdn, self.value)
 
 
 class AliasRecord(_ValueMixin, Record):
@@ -478,7 +595,7 @@ class CaaRecord(_ValuesMixin, Record):
         return [CaaValue(v) for v in values]
 
 
-class CnameRecord(_ValueMixin, Record):
+class CnameRecord(_GeoMixin, _ValueMixin, Record):
     _type = 'CNAME'
 
     @classmethod
@@ -855,5 +972,5 @@ class SrvRecord(_ValuesMixin, Record):
         return [SrvValue(v) for v in values]
 
 
-class TxtRecord(_ChunkedValuesMixin, Record):
+class TxtRecord(_GeoMixin, _ChunkedValuesMixin, Record):
     _type = 'TXT'
