@@ -11,6 +11,7 @@ from dyn.tm.services.dsf import DSFARecord, DSFAAAARecord, DSFFailoverChain, \
     DSFMonitor, DSFNode, DSFRecordSet, DSFResponsePool, DSFRuleset, \
     TrafficDirector, get_all_dsf_monitors, get_all_dsf_services, \
     get_response_pool, DSFCNAMERecord, DSFTXTRecord
+from dyn.tm.services.active_failover import HealthMonitor, ActiveFailover
 from dyn.tm.session import DynectSession
 from dyn.tm.zones import Zone as DynZone
 from logging import getLogger
@@ -235,6 +236,8 @@ class DynProvider(BaseProvider):
 
     MONITOR_HEADER = 'User-Agent: Dyn Monitor'
     MONITOR_TIMEOUT = 10
+    # valid intervals in minutes for healthcheck
+    VALID_INTERVALS = [1, 5, 10, 15]
 
     _sess_create_lock = Lock()
 
@@ -462,6 +465,53 @@ class DynProvider(BaseProvider):
 
         return td_records
 
+    def _check_active_failover_for_HTTP(self, afo, mon):
+        return {
+            'backup': afo.failover_data,
+            'path': mon.path,
+            'host': mon.host,
+            'port': mon.port if mon.port else 80,
+            'interval': int(mon.interval * 60),
+            'retries': int(mon.retries),
+            'type': mon.protocol.upper(),
+        }
+
+    def _check_active_failover_for_HTTPS(self, afo, mon):
+        return {
+            'backup': afo.failover_data,
+            'path': mon.path,
+            'host': mon.host,
+            'port': mon.port if mon.port else 443,
+            'interval': int(mon.interval * 60),
+            'retries': int(mon.retries),
+            'type': mon.protocol.upper(),
+        }
+
+    def _check_active_failover_for_TCP(self, afo, mon):
+        return {
+            'backup': afo.failover_data,
+            'port': mon.port,
+            'interval': int(mon.interval * 60),
+            'retries': int(mon.retries),
+            'type': mon.protocol.upper(),
+        }
+
+    def _check_active_failover(self, zone, name, data):
+        fqdn = "{}.{}".format(name, zone.name)
+        try:
+            afo = ActiveFailover(zone.name, fqdn)
+        except:
+            afo = None
+
+        if afo and "{}".format(afo.active) == 'Y':
+            mon = afo.monitor
+            function_prefix = '_check_active_failover_for_'
+            data_for = getattr(self, '{}{}'.format(function_prefix,
+                                                   mon.protocol.upper()))
+            data['healthcheck'] = data_for(afo, mon)
+
+        return data
+
     def populate(self, zone, target=False, lenient=False):
         self.log.debug('populate: name=%s, target=%s, lenient=%s', zone.name,
                        target, lenient)
@@ -493,6 +543,9 @@ class DynProvider(BaseProvider):
                 for _type, records in types.items():
                     data_for = getattr(self, '_data_for_{}'.format(_type))
                     data = data_for(_type, records)
+                    # couldn't find a way to get all active failover services
+                    if _type == 'A' or _type == 'AAAA':
+                        data = self._check_active_failover(zone, name, data)
                     record = Record.new(zone, name, data, source=self,
                                         lenient=lenient)
                     if record not in td_records:
@@ -865,6 +918,49 @@ class DynProvider(BaseProvider):
         fqdn_tds[_type].delete()
         del fqdn_tds[_type]
 
+    def _process_healthcheck_interval(self, interval):
+        # we need minutes
+        interval = interval / 60
+        return min(self.VALID_INTERVALS,
+                   key=lambda x: abs(int(x) - int(interval)))
+
+    def _mod_healthcheck_Create(self, dyn_zone, change):
+        new = change.new
+        fqdn = new.fqdn
+        hltck = new.healthcheck
+        host = hltck['host'] if 'host' in hltck else None
+        port = hltck['port'] if 'port' in hltck else None
+        path = hltck['path'] if 'path' in hltck else None
+        interval = self._process_healthcheck_interval(hltck['interval'])
+        monitor = HealthMonitor(protocol=hltck['type'], interval=interval,
+                                retries=hltck['retries'],
+                                port=port, path=path, host=host)
+        ActiveFailover(new.zone.name, fqdn,
+                       new.values[0], 'ip',
+                       hltck['backup'], monitor=monitor,
+                       contact_nickname=None,
+                       auto_recover=True,
+                       ttl=new.ttl, recovery_delay=0)
+
+    def _mod_healthcheck_Update(self, dyn_zone, change):
+        new = change.new
+        if not new.healthcheck:
+            # new record doesn't have a healthcheck anymore
+            self._mod_healthcheck_Delete(dyn_zone, change)
+            self._mod_Create(dyn_zone, change)
+        else:
+            self._mod_healthcheck_Delete(dyn_zone, change)
+            self._mod_healthcheck_Create(dyn_zone, change)
+
+    def _mod_healthcheck_Delete(self, dyn_zone, change):
+        existing = change.existing
+        fqdn = existing.fqdn
+        try:
+            afo = ActiveFailover(existing.zone.name, fqdn)
+            afo.delete()
+        except:
+            pass
+
     def _mod_Create(self, dyn_zone, change):
         new = change.new
         kwargs_for = getattr(self, '_kwargs_for_{}'.format(new._type))
@@ -889,6 +985,22 @@ class DynProvider(BaseProvider):
     def _mod_Update(self, dyn_zone, change):
         self._mod_Delete(dyn_zone, change)
         self._mod_Create(dyn_zone, change)
+
+    def _apply_active_failover(self, desired, changes, dyn_zone):
+        self.log.debug('_apply_active_failover: zone=%s', desired.name)
+        unhandled_changes = []
+        for c in changes:
+            # we only mess with changes that have geo info somewhere
+            if getattr(c.new, 'healthcheck', False) or\
+               getattr(c.existing, 'healthcheck', False):
+                func_prefix = '_mod_healthcheck_'
+                mod = getattr(self,
+                              '{}{}'.format(func_prefix, c.__class__.__name__))
+                mod(dyn_zone, c)
+            else:
+                unhandled_changes.append(c)
+
+        return unhandled_changes
 
     def _apply_traffic_directors(self, desired, changes, dyn_zone):
         self.log.debug('_apply_traffic_directors: zone=%s', desired.name)
@@ -926,6 +1038,9 @@ class DynProvider(BaseProvider):
         if self.traffic_directors_enabled:
             # any changes left over don't involve geo
             changes = self._apply_traffic_directors(desired, changes, dyn_zone)
+
+        # any changes left over don't involve geo nor healthcheck
+        changes = self._apply_active_failover(desired, changes, dyn_zone)
 
         self._apply_regular(desired, changes, dyn_zone)
 
