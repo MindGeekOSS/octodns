@@ -9,6 +9,7 @@ from collections import defaultdict
 from ipaddress import IPv4Address, IPv6Address
 from requests import Session
 import logging
+from urlparse import urlsplit
 from urllib import urlencode
 from time import sleep
 import time
@@ -130,7 +131,6 @@ class UltraClient(object):
         self._check_ultra_session()
         url = '{}{}'.format(self.BASE, path)
         resp = self._sess.request(method, url, params=params, json=data)
-
         if resp.status_code == 401:
             raise UltraClientUnauthorized()
         if resp.status_code == 404:
@@ -238,7 +238,9 @@ class UltraClient(object):
             m = re.match(regex, record['rrtype'])
             record['rrtype'] = m.group(1)
             record['ownerName'] = zone.hostname_from_fqdn(record['ownerName'])
-            if record['rrtype'].upper() == 'A' and 'profile' in record:
+            if record['rrtype'].upper() == 'A' and 'profile' in record and\
+               record['profile']['@context'] ==\
+               "http://schemas.ultradns.com/DirPool.jsonschema":
                 data = record['rdata']
                 t = record['rrtype']
                 v = data[0] if isinstance(data, list) else data
@@ -246,6 +248,21 @@ class UltraClient(object):
                    not self._is_valid_ip_value('ipv6', v):
                     t = 'CNAME'
                 record['rrtype'] = t
+            elif 'profile' in record and\
+                 record['profile']['@context'] ==\
+                 "http://schemas.ultradns.com/SBPool.jsonschema":
+                # We need to retrieve the probes
+                ownerName = record['ownerName']
+                path = "/zones/{}/rrsets/A/{}/probes".format(zone_name,
+                                                             ownerName)
+                try:
+                    probes = self._request('GET', path,
+                                           {'offset': offset,
+                                            'limit': limit}).json()
+                    if 'probes' in probes:
+                        record['probes'] = probes['probes']
+                except:
+                    pass
 
         return ret
 
@@ -256,6 +273,9 @@ class UltraClient(object):
                                                type_str.upper(),
                                                params['ownerName'])
         self._request('POST', path, data=params)
+        if 'probes' in params:
+            path = "{}/probes".format(path)
+            self._request('POST', path, data=params['probes'])
 
     def record_update(self, zone_name, params):
         type_str = params['rrtype']
@@ -621,6 +641,24 @@ class UltraProvider(BaseProvider):
         "TF": "ANT"
     }
 
+    _intervals_from_text = {
+        "HALF_MINUTE": 30,
+        "ONE_MINUTE": 60,
+        "TWO_MINUTES": 120,
+        "FIVE_MINUTES": 300,
+        "TEN_MINUTES": 600,
+        "FIFTEEN_MINUTES": 900,
+    }
+
+    _intervals_from_duration = {
+        30: "HALF_MINUTE",
+        60: "ONE_MINUTE",
+        120: "TWO_MINUTES",
+        300: "FIVE_MINUTES",
+        600: "TEN_MINUTES",
+        900: "FIFTEEN_MINUTES",
+    }
+
     def __init__(self, id, account_name, username, password,
                  sleep_period, *args, **kwargs):
         self.log = logging.getLogger('UltraProvider[{}]'.format(id))
@@ -633,6 +671,72 @@ class UltraProvider(BaseProvider):
                                    password, sleep_period)
 
         self._zone_records = {}
+
+    def _healthcheck_data_for_HTTP(self, profile, probe):
+        try:
+            url = probe['details']['transactions'][0]['url']
+        except:
+            return [1, 80, '/']
+        url_components = urlsplit(url)
+        path = url_components.path
+        query = url_components.query
+        path = path if not query else path + "?" + query
+
+        if url_components.port:
+            port = url_components.port
+        else:
+            port = 80 if url.startswith('http://') else 443
+
+        retries = probe['threshold']
+        probe_type = "HTTP" if url.startswith('http://') else "HTTPS"
+
+        return [retries, url_components.hostname, port, path, probe_type]
+
+    def _healthcheck_data_for_TCP(self, profile, probe):
+        try:
+            port = probe['details']['port']
+        except:
+            port = None
+        retries = probe['threshold']
+
+        return [retries, None, port, None, None]
+
+    def _parse_healthcheck_data(self, record):
+        profile = record['profile']
+        try:
+            monitor = record['probes'][0]
+        except:
+            return {}
+
+        backup = profile['backupRecords'][0]['rdata']
+        probe_type = monitor['type']
+        data_for = getattr(self, '_healthcheck_data_for_{}'.format(probe_type))
+        retries, host, port, path, pt = data_for(profile, monitor)
+
+        ret = {
+            'path': path,
+            'host': host,
+            'backup': backup,
+            'interval': self._intervals_from_text[monitor['interval']],
+            'port': port,
+            'retries': retries,
+            'type': pt if pt else probe_type,
+        }
+        return {k: v for k, v in ret.items() if v is not None}
+
+    def _sbpool_data_for_multiple(self, _type, records):
+        record = records[0]
+        healthcheck = self._parse_healthcheck_data(record)
+
+        return {
+            'ttl': record['ttl'],
+            'type': _type,
+            'values': record['rdata'],
+            'healthcheck': healthcheck
+        }
+
+    _sbpool_data_for_A = _sbpool_data_for_multiple
+    _sbpool_data_for_AAAA = _sbpool_data_for_multiple
 
     geo_re = re.compile(r'^(?P<continent_code>\w\w\w?)(-(?P<country_code>\w\w)'
                         r'(-(?P<subdivision_code>\w\w))?)?$')
@@ -848,6 +952,11 @@ class UltraProvider(BaseProvider):
                    records[0]['profile']['@context'] ==\
                    "http://schemas.ultradns.com/DirPool.jsonschema":
                     data_for = getattr(self, '_geo_data_for_{}'.format(_type))
+                elif 'profile' in records[0] and\
+                     records[0]['profile']['@context'] ==\
+                     "http://schemas.ultradns.com/SBPool.jsonschema":
+                    data_for = getattr(self,
+                                       '_sbpool_data_for_{}'.format(_type))
                 else:
                     data_for = getattr(self, '_data_for_{}'.format(_type))
                 record = Record.new(zone, name, data_for(_type, records),
@@ -856,6 +965,105 @@ class UltraProvider(BaseProvider):
 
         self.log.info('populate:   found %s records',
                       len(zone.records) - before)
+
+    def _generate_profile_sbpool(self, hltck):
+        return {
+            "@context":
+            "http://schemas.ultradns.com/SBPool.jsonschema",
+            "maxActive": 1,
+            "actOnProbes": True,
+            "order": "FIXED",
+            "backupRecords": [{
+                "failoverDelay": 0,
+                "rdata": hltck['backup']
+            }],
+            "rdataInfo": [{
+                "runProbes": True,
+                "priority": 1,
+                "threshold": 1,
+                "failoverDelay": 0
+            }]
+        }
+
+    def _process_healthcheck_interval(self, interval):
+        valid_intervals = list(self._intervals_from_duration.keys())
+        period = min(valid_intervals,
+                     key=lambda x: abs(int(x) - int(interval)))
+        return self._intervals_from_duration[period]
+
+    def _generate_probes_sbpool_for_http_https(self, protocol, hltck):
+        interval = self._process_healthcheck_interval(hltck['interval'])
+        return {
+            "interval": interval,
+            "agents": [
+                "NEW_YORK", "PALO_ALTO",
+                "DALLAS", "AMSTERDAM"
+            ],
+            "details": {
+                "totalLimits": {"fail": 5},
+                "transactions": [{
+                    "url": "{}://{}:{}{}".format(protocol, hltck['host'],
+                                                 hltck['port'], hltck['path']),
+                    "method": "GET",
+                    "limits": {
+                        "run": {"fail": 5},
+                        "connect": {"fail": 5}
+                    },
+                    "followRedirects": True
+                }]
+            },
+            "threshold": hltck['retries'],
+            "type": "HTTP"
+        }
+
+    def _generate_probes_sbpool_for_HTTPS(self, hltck):
+        if 'port' not in hltck:
+            hltck['port'] = 443
+        return self._generate_probes_sbpool_for_http_https('https', hltck)
+
+    def _generate_probes_sbpool_for_HTTP(self, hltck):
+        if 'port' not in hltck:
+            hltck['port'] = 80
+        return self._generate_probes_sbpool_for_http_https('http', hltck)
+
+    def _generate_probes_sbpool_for_TCP(self, hltck):
+        return {
+            "interval": self._intervals_from_duration[hltck['interval']],
+            "agents": [
+                "NEW_YORK", "PALO_ALTO",
+                "DALLAS", "AMSTERDAM"
+            ],
+            "details": {
+                "port": hltck['port'],
+                "limits": {"connect": {"fail": 10}}
+            },
+            "threshold": hltck['retries'],
+            "type": "TCP"
+        }
+
+    def _generate_probes_sbpool(self, hltck):
+        function_prefix = '_generate_probes_sbpool_for_'
+        data_for = getattr(self,
+                           '{}{}'.format(function_prefix, hltck['type']))
+        return data_for(hltck)
+
+    def _healthcheck_params_for_multiple(self, record):
+        params_for_str = '_params_for_{}'.format(record._type)
+        params_for = getattr(self, params_for_str)
+        for params in params_for(record):
+            hltck = record.healthcheck
+            profile = self._generate_profile_sbpool(hltck)
+            probes = self._generate_probes_sbpool(hltck)
+            data = {
+                'profile': profile,
+                'probes': probes,
+                'rrtype': record._type,
+                'rdata': record.values
+            }
+            yield dict(params, **data)
+
+    _healthcheck_params_for_A = _healthcheck_params_for_multiple
+    _healthcheck_params_for_AAAA = _healthcheck_params_for_multiple
 
     def _generate_rdata_dirpool(self, record):
         rdata = []
@@ -1028,6 +1236,9 @@ class UltraProvider(BaseProvider):
         if getattr(change.new, 'geo', False) or getattr(change.existing,
                                                         'geo', False):
             return '_geo_params_for_{}'.format(new._type)
+        if getattr(change.new, 'healthcheck', False) or\
+           getattr(change.existing, 'healthcheck', False):
+            return '_healthcheck_params_for_{}'.format(new._type)
 
         return '_params_for_{}'.format(new._type)
 
@@ -1041,20 +1252,8 @@ class UltraProvider(BaseProvider):
             self._client.record_create(new.zone.name, params)
 
     def _apply_Update(self, change):
-        new = change.new
-        existing = change.existing
-        # RDPool needs to be deleted first and then re-created to
-        #    convert to a non-rdpool record
-        if hasattr(existing, 'values') and len(existing.values) > 1 and \
-           (not isinstance(new.values, list) or len(new.values) < 2):
-                self._apply_Delete(change)
-                self._apply_Create(change)
-        params_for_str = self._compute_paramsfor_name(change)
-        params_for = getattr(self, params_for_str)
-        for params in params_for(new):
-            if params['ownerName'] == '':
-                params['ownerName'] = new.zone.name
-            self._client.record_update(new.zone.name, params)
+        self._apply_Delete(change)
+        self._apply_Create(change)
 
     def _apply_Delete(self, change):
         existing = change.existing

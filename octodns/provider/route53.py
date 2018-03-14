@@ -694,7 +694,7 @@ class Route53Provider(BaseProvider):
                 # record doesn't support geo, we don't need to inspect it
                 continue
             if not hasattr(record, 'healthcheck') or \
-               record.healthcheck is False:
+               not record.healthcheck:
                 # record in config says no healthcheck is required
                 continue
             # OK this is a record we don't have change for that does have geo
