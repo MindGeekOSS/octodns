@@ -13,6 +13,7 @@ import logging
 from .provider.base import BaseProvider
 from .provider.plan import Plan
 from .provider.yaml import YamlProvider
+from .provider.csv import CsvProvider
 from .record import Record
 from .yaml import safe_load
 from .yaml import safe_dump
@@ -342,6 +343,40 @@ class Manager(object):
             source.populate(zb)
 
         return zb.changes(za, _AggregateTarget(a + b))
+
+    def export(self, eligible_zones, output_dir, lenient, source, *sources):
+        '''
+        Export zone data from the specified source
+        '''
+        self.log.info('export: eligible_zones=%s', eligible_zones)
+
+        # We broke out source to force at least one to be passed, add it to any
+        # others we got.
+        sources = [source] + list(sources)
+
+        try:
+            sources = [self.providers[s] for s in sources]
+        except KeyError as e:
+            raise Exception('Unknown source: {}'.format(e.args[0]))
+
+        target = CsvProvider('dump', output_dir)
+
+        zones = self.config['zones'].items()
+        if eligible_zones:
+            zones = filter(lambda d: d[0] in eligible_zones, zones)
+
+        futures = []
+        for zone_name, config in zones:
+            self.log.info('sync:   zone=%s', zone_name)
+            futures.append(self._executor.submit(self._populate_and_plan,
+                                                 zone_name, sources, [target]))
+
+        # Wait on all results and unpack/flatten them in to a list of target &
+        # plan pairs.
+        plans = [p for f in futures for p in f.result()]
+
+        for target, plan in plans:
+            target.apply(plan)
 
     def dump(self, zone, output_dir, lenient, source, *sources):
         '''
