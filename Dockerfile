@@ -1,8 +1,10 @@
 FROM python:2.7-stretch
-
 LABEL maintainer="Fabrice Baumann <fabrice.baumann@mindgeek.com>"
 
-RUN pip install PyYaml>=3.12 \
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --upgrade wheel \
+    && pip install --no-cache-dir\
+    PyYaml>=3.12 \
     dnspython>=1.15.0 \
     futures>=3.1.1 \
     incf.countryutils>=1.0 \
@@ -27,6 +29,4 @@ RUN pip install PyYaml>=3.12 \
 ADD . /octodns
 WORKDIR /octodns
 
-RUN pip install -e . \
-    && pip install -e ".[dev]" \
-    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir -e ".[dev]"
