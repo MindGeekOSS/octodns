@@ -295,10 +295,10 @@ class UltraClient(object):
 
         if t.upper() == 'CNAME':
             try:
-                r.geo
-                # if record has a geo block, check if values are ip or not
-                # cname has value and A has values
-                t = 'A'
+                if len(r.geo) > 0:
+                    # if record has a geo block, check if values are ip or not
+                    # cname has value and A has values
+                    t = 'A'
             except AttributeError:
                 t = t
 
