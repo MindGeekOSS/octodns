@@ -143,14 +143,16 @@ class DynProvider(BaseProvider):
     _sess_create_lock = Lock()
 
     def __init__(self, id, customer, username, password,
-                 traffic_directors_enabled=False, nameservers=[],
-                 *args, **kwargs):
+                 traffic_directors_enabled=False,
+                 active_failover_enabled=False,
+                 nameservers=[], *args, **kwargs):
         self.log = getLogger('DynProvider[{}]'.format(id))
         self.log.debug('__init__: id=%s, customer=%s, username=%s, '
                        'password=***, traffic_directors_enabled=%s', id,
                        customer, username, traffic_directors_enabled)
         # we have to set this before calling super b/c SUPPORTS_GEO requires it
         self.traffic_directors_enabled = traffic_directors_enabled
+        self.active_failover_enabled = active_failover_enabled
         super(DynProvider, self).__init__(id, *args, **kwargs)
         self.customer = customer
         self.username = username
@@ -445,7 +447,8 @@ class DynProvider(BaseProvider):
                     data_for = getattr(self, '_data_for_{}'.format(_type))
                     data = data_for(_type, records)
                     # couldn't find a way to get all active failover services
-                    if _type == 'A' or _type == 'AAAA':
+                    if _type == 'A' or _type == 'AAAA' and \
+                       self.active_failover_enabled:
                         data = self._check_active_failover(zone, name, data)
                     record = Record.new(zone, name, data, source=self,
                                         lenient=lenient)
