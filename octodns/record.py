@@ -486,11 +486,6 @@ class _HealthcheckMixin(object):
                 interval = int(healthcheck['interval'])
                 if not interval or 0 > int(interval):
                     reasons.append('missing interval')
-                # The 'TTL' value is limited to 1/2 of
-                #    the Health monitoring interval.
-                if interval and data['ttl'] > (interval / 2):
-                    reasons.append('TTL is limited to 1/2 \
-                                    of the healthcheck interval')
 
                 backup = healthcheck['backup']
                 if not backup:
