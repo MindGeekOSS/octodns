@@ -505,7 +505,7 @@ class _HealthcheckMixin(object):
         super(_HealthcheckMixin, self).__init__(zone, name, data,
                                                 *args, **kwargs)
         try:
-            self.healthcheck = data['healthcheck']
+            self.healthcheck = sorted(data['healthcheck'])
         except KeyError:
             self.healthcheck = {}
 
