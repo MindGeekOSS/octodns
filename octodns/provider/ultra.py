@@ -1174,12 +1174,16 @@ class UltraProvider(BaseProvider):
 
     def _params_for_TXT(self, record):
         values = [v.replace('\;', ';') for v in record.chunked_values]
-        values = [v[1:-1] if v and v[0] == '"' else v for v in values]
+        ret = []
+        for v in values:
+            if v and v[0] == '"':
+                v = v[1:-1]
+            ret.append(v.replace('" "', ''))
         yield {
             'ttl': record.ttl,
             'ownerName': record.name,
             'rrtype': record._type,
-            'rdata': values
+            'rdata': ret
         }
 
     _params_for_SPF = _params_for_TXT
