@@ -24,10 +24,7 @@ def main():
 
     manager = Manager(args.config_file)
 
-    if args.sort:
-        manager.sort_configs()
-
-    manager.validate_configs()
+    manager.validate_configs(args.sort)
 
 
 if __name__ == '__main__':
