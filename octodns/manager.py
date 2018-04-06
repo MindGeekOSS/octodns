@@ -16,7 +16,6 @@ from .provider.yaml import YamlProvider
 from .provider.csv import CsvProvider
 from .record import Record
 from .yaml import safe_load
-from .yaml import safe_dump
 from .zone import Zone
 
 
@@ -416,7 +415,7 @@ class Manager(object):
             plan = Plan(zone, zone, [], False)
         target.apply(plan)
 
-    def validate_configs(self):
+    def validate_configs(self, auto_sorting=False):
         for zone_name, config in self.config['zones'].items():
             zone = Zone(zone_name, self.configured_sub_zones(zone_name))
 
@@ -433,14 +432,26 @@ class Manager(object):
 
             for source in sources:
                 if isinstance(source, YamlProvider):
-                    source.populate(zone)
+                    try:
+                        source.populate(zone)
+                    except Exception as err:
+                        if not auto_sorting:
+                            raise err
+                        self.log.debug('{} has an issue, we need to \
+                                       apply auto_sorting'.format(zone_name))
+                        self.sort_configs(source.directory, zone_name)
 
-    def sort_configs(self):
-        for zone_name, config in self.config['zones'].items():
-            self.log.debug('Sorting: {} From: {}'
-                           .format(zone_name, config['sources']))
-            for config_folder in config['sources']:
-                with open(config_folder + "/" + zone_name + "yaml", 'r') as fh:
-                    self.dump_data = safe_load(fh, enforce_order=False)
-                with open(config_folder + "/" + zone_name + "yaml", 'w') as fh:
-                    self.dump_data = safe_dump(self.dump_data, fh)
+    def sort_configs(self, directory, zone):
+        self.log.debug('Sorting: {} From: {}'
+                       .format(zone, directory))
+
+        source = YamlProvider('load', directory,
+                              default_ttl=1, enforce_order=False)
+        zone = Zone(zone, self.configured_sub_zones(zone))
+        source.populate(zone)
+
+        target = YamlProvider('dump', directory)
+        plan = target.plan(zone)
+        if plan is None:
+            plan = Plan(zone, zone, [], False)
+        target.apply(plan)
