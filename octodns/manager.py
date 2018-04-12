@@ -433,8 +433,7 @@ class Manager(object):
         self.log.debug('Sorting: {} From: {}'
                        .format(zone, directory))
 
-        source = YamlProvider('load', directory,
-                              default_ttl=1, enforce_order=False)
+        source = YamlProvider('load', directory, enforce_order=False)
         zone = Zone(zone, self.configured_sub_zones(zone))
         source.populate(zone)
 
