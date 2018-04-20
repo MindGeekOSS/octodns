@@ -86,9 +86,6 @@ class YamlProvider(BaseProvider):
         for record in records:
             d = record.data
             d['type'] = record._type
-            if record.ttl == self.default_ttl:
-                # ttl is the default, we don't need to store it
-                del d['ttl']
             data[record.name].append(d)
 
         # Flatten single element lists
