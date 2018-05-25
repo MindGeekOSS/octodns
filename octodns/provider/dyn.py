@@ -447,9 +447,9 @@ class DynProvider(BaseProvider):
                     data_for = getattr(self, '_data_for_{}'.format(_type))
                     data = data_for(_type, records)
                     # couldn't find a way to get all active failover services
-                    if _type == 'A' or _type == 'AAAA' and \
-                       self.active_failover_enabled:
-                        data = self._check_active_failover(zone, name, data)
+                    # if _type == 'A' or _type == 'AAAA' and \
+                    #   self.active_failover_enabled:
+                    #    data = self._check_active_failover(zone, name, data)
                     record = Record.new(zone, name, data, source=self,
                                         lenient=lenient)
                     if record not in td_records:
