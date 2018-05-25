@@ -321,7 +321,7 @@ class UltraProvider(BaseProvider):
         password: pass
     '''
     SUPPORTS_GEO = True
-    SUPPORTS = set(('A', 'AAAA', 'CAA', 'CNAME', 'MX', 'NS',
+    SUPPORTS = set(('A', 'Sitebacker', 'AAAA', 'CAA', 'CNAME', 'MX', 'NS',
                     'TXT', 'SRV', 'NAPTR', 'SPF'))
 
     ALPHA32 = {
@@ -730,7 +730,7 @@ class UltraProvider(BaseProvider):
 
         return {
             'ttl': record['ttl'],
-            'type': _type,
+            'type': 'Sitebacker',
             'values': record['rdata'],
             'healthcheck': healthcheck
         }
@@ -1061,7 +1061,8 @@ class UltraProvider(BaseProvider):
             data = {
                 'profile': profile,
                 'probes': probes,
-                'rrtype': record._type,
+                'rrtype': 'A' if record._type == 'Sitebacker'
+                          else record._type,
                 'rdata': record.values
             }
             yield dict(params, **data)

@@ -79,6 +79,7 @@ class Record(object):
         try:
             _class = {
                 'A': ARecord,
+                'Sitebacker': SitebackerRecord,
                 'AAAA': AaaaRecord,
                 'ALIAS': AliasRecord,
                 'CAA': CaaRecord,
@@ -462,7 +463,8 @@ class _HealthcheckMixin(object):
         super(_HealthcheckMixin, self).__init__(zone, name, data,
                                                 *args, **kwargs)
         try:
-            self.healthcheck = sorted(data['healthcheck'])
+            self.healthcheck = {k: v for k, v in
+                                sorted(data['healthcheck'].items())}
         except KeyError:
             self.healthcheck = {}
 
@@ -488,6 +490,17 @@ class _HealthcheckMixin(object):
                                                    self.fqdn, values,
                                                    self.healthcheck)
         return super(_HealthcheckMixin, self).__repr__()
+
+
+class SitebackerRecord(_HealthcheckMixin, _GeoMixin, _ValuesMixin, Record):
+    _type = 'A'
+
+    @classmethod
+    def _validate_value(self, value):
+        return []
+
+    def _process_values(self, values):
+        return values
 
 
 class ARecord(_HealthcheckMixin, _GeoMixin, _ValuesMixin, Record):
