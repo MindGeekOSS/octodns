@@ -1,6 +1,9 @@
 FROM python:2.7-slim-stretch
 LABEL maintainer="Fabrice Baumann <fabrice.baumann@mindgeek.com>"
 
+ADD . /octodns
+WORKDIR /octodns
+
 RUN apt-get update \
     && apt-get install -y \
         python \
@@ -31,9 +34,6 @@ RUN apt-get update \
         ovh>=0.4.7 \
         s3transfer>=0.1.10 \
         six>=1.10.0 \
-    && rm -rf /var/lib/apt/lists/*
-
-ADD . /octodns
-WORKDIR /octodns
-
-RUN pip install --no-cache-dir -e ".[dev]"
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir -e ".[dev]" \
+    && apt-get remove -y --auto-remove python-setuptools python-pip
