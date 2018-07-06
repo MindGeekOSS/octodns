@@ -75,7 +75,8 @@ class UltraClient(object):
     }
     _unknown_type_pattern = re.compile('TYPE([0-9]+)$', re.I)
 
-    def __init__(self, account_name, username, password, sleep_period):
+    def __init__(self, account_name, username, password,
+                 sleep_period, nameservers=[]):
         self._connected = False
         sess = Session()
         self._sess = sess
@@ -84,6 +85,7 @@ class UltraClient(object):
         self._username = username
         self._password = password
         self.sleep_after_zone_creation = sleep_period
+        self.nameservers = nameservers
 
     def _check_ultra_session(self):
         current_time = time.time()
@@ -101,6 +103,10 @@ class UltraClient(object):
         data = {'grant_type': "password", 'username': self._username,
                 'password': self._password}
         self._execute_auth_request(data)
+
+    def is_root_ns_record(self, record):
+        return record['rrtype'] == 'NS' and \
+            record['rdata'] in self.nameservers
 
     def _execute_auth_request(self, data):
         try:
@@ -184,7 +190,7 @@ class UltraClient(object):
         zone = Zone(name, [])
         records = self.records(zone)
         for record in records:
-            if record['rrtype'] == 'SOA':
+            if record['rrtype'] == 'SOA' or record['rrtype'] == 'NS':
                 continue
             self.record_delete(name, record)
 
@@ -660,16 +666,16 @@ class UltraProvider(BaseProvider):
     }
 
     def __init__(self, id, account_name, username, password,
-                 sleep_period, *args, **kwargs):
+                 sleep_period, nameservers=[], *args, **kwargs):
         self.log = logging.getLogger('UltraProvider[{}]'.format(id))
         self.log.debug('__init__: id=%s, token=***', id)
         super(UltraProvider, self).__init__(id, *args, **kwargs)
         self.username = username
         self.password = password
         self.account_name = account_name
+        self.nameservers = nameservers
         self._client = UltraClient(account_name, username,
-                                   password, sleep_period)
-
+                                   password, sleep_period, nameservers)
         self._zone_records = {}
 
     def _healthcheck_data_for_HTTP(self, profile, probe):
@@ -1246,7 +1252,7 @@ class UltraProvider(BaseProvider):
         if getattr(change.new, 'geo', False) or getattr(change.existing,
                                                         'geo', False):
             return '_geo_params_for_{}'.format(new._type)
-        if getattr(change.new, 'healthcheck', False) or\
+        if getattr(change.new, 'healthcheck', False) or \
            getattr(change.existing, 'healthcheck', False):
             return '_healthcheck_params_for_{}'.format(new._type)
 
@@ -1254,23 +1260,40 @@ class UltraProvider(BaseProvider):
 
     def _apply_Create(self, change):
         new = change.new
+        if new._type == 'NS' and new.name == '':
+            self._apply_Update_For_Real(change)
+        else:
+            params_for_str = self._compute_paramsfor_name(change)
+            params_for = getattr(self, params_for_str)
+            for params in params_for(new):
+                if params['ownerName'] == '':
+                    params['ownerName'] = new.zone.name
+                self._client.record_create(new.zone.name, params)
+
+    def _apply_Update_For_Real(self, change):
+        new = change.new
         params_for_str = self._compute_paramsfor_name(change)
         params_for = getattr(self, params_for_str)
         for params in params_for(new):
             if params['ownerName'] == '':
                 params['ownerName'] = new.zone.name
-            self._client.record_create(new.zone.name, params)
+            self._client.record_update(new.zone.name, params)
 
     def _apply_Update(self, change):
-        self._apply_Delete(change)
-        self._apply_Create(change)
+        existing = change.existing
+        if existing._type == 'NS':
+            self._apply_Update_For_Real(change)
+        else:
+            self._apply_Delete(change)
+            self._apply_Create(change)
 
     def _apply_Delete(self, change):
         existing = change.existing
         zone = existing.zone
         for record in self.zone_records(zone):
-            if existing.name == record['ownerName'] and \
-               existing._type == record['rrtype']:
+            if existing.name == record['ownerName'] and\
+               existing._type == record['rrtype'] and\
+               not self._client.is_root_ns_record(record):
                 if existing.name == '':
                     existing.name = zone.name
                 self._client.record_delete(zone.name, existing)
