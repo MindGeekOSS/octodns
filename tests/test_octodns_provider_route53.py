@@ -978,77 +978,6 @@ class TestRoute53Provider(TestCase):
         provider._gc_health_checks(record, [])
         stubber.assert_no_pending_responses()
 
-    def test_legacy_health_check_gc(self):
-        provider, stubber = self._get_stubbed_provider()
-
-        old_caller_ref = '0000:A:3333'
-        health_checks = [{
-            'Id': '42',
-            'CallerReference': self.caller_ref,
-            'HealthCheckConfig': {
-                'Type': 'HTTPS',
-                'FullyQualifiedDomainName': 'unit.tests',
-                'IPAddress': '4.2.3.4',
-                'ResourcePath': '/_dns',
-                'Type': 'HTTPS',
-                'Port': 443,
-            },
-            'HealthCheckVersion': 2,
-        }, {
-            'Id': '43',
-            'CallerReference': old_caller_ref,
-            'HealthCheckConfig': {
-                'Type': 'HTTPS',
-                'FullyQualifiedDomainName': 'unit.tests',
-                'IPAddress': '4.2.3.4',
-                'ResourcePath': '/_dns',
-                'Type': 'HTTPS',
-                'Port': 443,
-            },
-            'HealthCheckVersion': 2,
-        }, {
-            'Id': '44',
-            'CallerReference': old_caller_ref,
-            'HealthCheckConfig': {
-                'Type': 'HTTPS',
-                'FullyQualifiedDomainName': 'other.unit.tests',
-                'IPAddress': '4.2.3.4',
-                'ResourcePath': '/_dns',
-                'Type': 'HTTPS',
-                'Port': 443,
-            },
-            'HealthCheckVersion': 2,
-        }]
-
-        stubber.add_response('list_health_checks', {
-            'HealthChecks': health_checks,
-            'IsTruncated': False,
-            'MaxItems': '100',
-            'Marker': '',
-        })
-
-        # No changes to the record itself
-        record = Record.new(self.expected, '', {
-            'ttl': 61,
-            'type': 'A',
-            'values': ['2.2.3.4', '3.2.3.4'],
-            'geo': {
-                'AF': ['4.2.3.4'],
-                'NA-US': ['5.2.3.4', '6.2.3.4'],
-                'NA-US-CA': ['7.2.3.4']
-            }
-        })
-
-        # Expect to delete the legacy hc for our record, but not touch the new
-        # one or the other legacy record
-        stubber.add_response('delete_health_check', {}, {
-            'HealthCheckId': '43',
-        })
-
-        provider._gc_health_checks(record, [
-            DummyR53Record('42'),
-        ])
-
     def test_no_extra_changes(self):
         provider, stubber = self._get_stubbed_provider()
 
@@ -1113,9 +1042,9 @@ class TestRoute53Provider(TestCase):
                 'NA': ['2.2.3.4'],
             }
         })
-        existing.add_record(record)
+        desired.add_record(record)
 
-        extra = provider._extra_changes(existing, [])
+        extra = provider._extra_changes(desired, [])
         self.assertEquals(0, len(extra))
         stubber.assert_no_pending_responses()
 
@@ -1145,8 +1074,8 @@ class TestRoute53Provider(TestCase):
             }
         })
 
-        existing.add_record(record)
-        extra = provider._extra_changes(existing, [])
+        desired.add_record(record)
+        extra = provider._extra_changes(desired, [])
         self.assertEquals(0, len(extra))
         stubber.assert_no_pending_responses()
 
@@ -1180,8 +1109,8 @@ class TestRoute53Provider(TestCase):
                 'NA': ['2.2.3.4'],
             }
         })
-        existing.add_record(record)
-        extra = provider._extra_changes(existing, [])
+        desired.add_record(record)
+        extra = provider._extra_changes(desired, [])
         self.assertEquals(0, len(extra))
         stubber.assert_no_pending_responses()
 
@@ -1190,7 +1119,7 @@ class TestRoute53Provider(TestCase):
             'path': '/_ready'
         }
         extra = provider._extra_changes(desired=desired, changes=[])
-        self.assertEquals(1, len(extra))
+        self.assertEquals(0, len(extra))
         stubber.assert_no_pending_responses()
 
         # change b/c of healthcheck host
@@ -1198,7 +1127,7 @@ class TestRoute53Provider(TestCase):
             'host': 'foo.bar.io'
         }
         extra = provider._extra_changes(desired=desired, changes=[])
-        self.assertEquals(1, len(extra))
+        self.assertEquals(0, len(extra))
         stubber.assert_no_pending_responses()
 
     def _get_test_plan(self, max_changes):
