@@ -31,9 +31,10 @@ class Ns1Provider(BaseProvider):
 
     ZONE_NOT_FOUND_MESSAGE = 'server error: zone not found'
 
-    def __init__(self, id, api_key, *args, **kwargs):
+    def __init__(self, id, api_key, nameservers=[], *args, **kwargs):
         self.log = getLogger('Ns1Provider[{}]'.format(id))
         self.log.debug('__init__: id=%s, api_key=***', id)
+        self.nameservers = nameservers
         super(Ns1Provider, self).__init__(id, *args, **kwargs)
         self._client = NSONE(apiKey=api_key)
 
@@ -226,7 +227,11 @@ class Ns1Provider(BaseProvider):
         return exists
 
     def _params_for_A(self, record):
-        params = {'answers': record.values, 'ttl': record.ttl}
+        params = {
+            'answers': filter(lambda x: x not in self.nameservers,
+                              record.values),
+            'ttl': record.ttl
+        }
         if hasattr(record, 'geo'):
             # purposefully set non-geo answers to have an empty meta,
             # so that we know we did this on purpose if/when troubleshooting
@@ -302,6 +307,10 @@ class Ns1Provider(BaseProvider):
 
     def _apply_Create(self, nsone_zone, change):
         new = change.new
+        if new._type == 'NS' and new.name == '':
+            change.existing = change.new
+            nsone_zone.reload()
+            return self._apply_Update(nsone_zone, change)
         name = self._get_name(new)
         _type = new._type
         params = getattr(self, '_params_for_{}'.format(_type))(new)
