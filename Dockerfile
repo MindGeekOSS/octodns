@@ -12,7 +12,7 @@ RUN apt-get update \
         ca-certificates \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir --upgrade wheel \
-    && pip install --no-cache-dir\
+    && pip install -v --no-cache-dir \
         PyYaml>=3.12 \
         dnspython>=1.15.0 \
         futures>=3.1.1 \

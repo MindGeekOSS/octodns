@@ -201,7 +201,7 @@ class Ns1Provider(BaseProvider):
 
             geo_records = nsone_zone.search(has_geo=True)
             exists = True
-        except ResourceException as e:
+        except Exception as e:
             if e.message != self.ZONE_NOT_FOUND_MESSAGE:
                 raise
             records = []
@@ -363,7 +363,7 @@ class Ns1Provider(BaseProvider):
         domain_name = desired.name[:-1]
         try:
             nsone_zone = self._client.loadZone(domain_name)
-        except ResourceException as e:
+        except Exception as e:
             if e.message != self.ZONE_NOT_FOUND_MESSAGE:
                 raise
             self.log.debug('_apply:   no matching zone, creating')

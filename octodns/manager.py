@@ -5,6 +5,7 @@
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
+from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
 from importlib import import_module
 from os import environ
@@ -79,13 +80,11 @@ class Manager(object):
             self.config = safe_load(fh, enforce_order=False)
 
         manager_config = self.config.get('manager', {})
-        max_workers = manager_config.get('max_workers', 1) \
+        max_workers = manager_config.get('max_workers', 0) \
             if max_workers is None else max_workers
         self.log.info('__init__:   max_workers=%d', max_workers)
-        if max_workers > 1:
-            self._executor = ThreadPoolExecutor(max_workers=max_workers)
-        else:
-            self._executor = MainThreadExecutor()
+        self._executor = ThreadPoolExecutor(max_workers = max_workers
+                                            if max_workers != 0 else None)
 
         self.include_meta = include_meta or manager_config.get('include_meta',
                                                                False)
@@ -248,7 +247,7 @@ class Manager(object):
         if eligible_zones:
             zones = filter(lambda d: d[0] in eligible_zones, zones)
 
-        futures = []
+        futures_job = []
         for zone_name, config in zones:
             self.log.info('sync:   zone=%s', zone_name)
             try:
@@ -291,12 +290,17 @@ class Manager(object):
                 raise Exception('Zone {}, unknown target: {}'.format(zone_name,
                                                                      target))
 
-            futures.append(self._executor.submit(self._populate_and_plan,
-                                                 zone_name, sources, targets))
+            futures_job.append(self._executor.submit(self._populate_and_plan,
+                                                     zone_name, sources, targets))
 
         # Wait on all results and unpack/flatten them in to a list of target &
         # plan pairs.
-        plans = [p for f in futures for p in f.result()]
+        futures.wait(futures_job)
+        for f in futures_job:
+            ex = f.exception()
+            if ex:
+                raise ex
+        plans = [p for f in futures_job for p in f.result()]
 
         # Best effort sort plans children first so that we create/update
         # children zones before parents which should allow us to more safely
@@ -376,15 +380,20 @@ class Manager(object):
         if eligible_zones:
             zones = filter(lambda d: d[0] in eligible_zones, zones)
 
-        futures = []
+        futures_job = []
         for zone_name, config in zones:
             self.log.info('sync:   zone=%s', zone_name)
-            futures.append(self._executor.submit(self._populate_and_plan,
-                                                 zone_name, sources, [target]))
+            futures_job.append(self._executor.submit(self._populate_and_plan,
+                                                     zone_name, sources, [target]))
 
         # Wait on all results and unpack/flatten them in to a list of target &
         # plan pairs.
-        plans = [p for f in futures for p in f.result()]
+        futures.wait(futures_job)
+        for f in futures_job:
+            ex = f.exception()
+            if ex:
+                raise ex
+        plans = [p for f in futures_job for p in f.result()]
 
         for target, plan in plans:
             target.apply(plan)
