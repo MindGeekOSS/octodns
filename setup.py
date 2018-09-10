@@ -10,6 +10,7 @@ except ImportError:
 
 cmds = (
     'compare',
+    'export',
     'dump',
     'report',
     'sync',
