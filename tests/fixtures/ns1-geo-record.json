@@ -1,0 +1,85 @@
+{
+  "zone": "unit.tests",
+  "domain": "unit.tests",
+  "type": "A",
+  "ttl": 300,
+  "tier": 3,
+  "answers": [
+    {
+      "answer": ["1.2.3.4"]
+    },
+    {
+      "answer": ["1.2.3.5"]
+    },
+    {
+      "answer": ["3.2.3.4"],
+      "meta": {
+        "note": "octodns_region_code:AS-JP",
+        "country": ["JP"]
+      }
+    },
+    {
+      "answer": ["3.2.3.5"],
+      "meta": {
+        "note": "octodns_region_code:AS-JP",
+        "country": ["JP"]
+      }
+    },
+    {
+      "answer": ["2.2.3.4"],
+      "meta": {
+        "note": "octodns_region_code:AF"
+      }
+    },
+    {
+      "answer": ["2.2.3.5"],
+      "meta": {
+        "note": "octodns_region_code:AF"
+      }
+    },
+    {
+      "answer": ["5.2.3.4"],
+      "meta": {
+        "note": "octodns_region_code:NA-US-CA",
+        "us_state": ["CA"]
+      }
+    },
+    {
+      "answer": ["5.2.3.5"],
+      "meta": {
+        "note": "octodns_region_code:NA-US-CA",
+        "us_state": ["CA"]
+      }
+    },
+    {
+      "answer": ["4.2.3.4"],
+      "meta": {
+        "note": "octodns_region_code:NA-US",
+        "country": ["US"]
+      }
+    },
+    {
+      "answer": ["4.2.3.5"],
+      "meta": {
+        "note": "octodns_region_code:NA-US",
+        "country": ["US"]
+      }
+    }
+  ],
+  "filters": [
+    {
+      "filter": "shuffle",
+      "config": {}
+    },
+    {
+      "filter": "geotarget_country",
+      "config": {}
+    },
+    {
+      "filter": "select_first_n",
+      "config": {
+        "N": 1
+      }
+    }
+  ]
+}

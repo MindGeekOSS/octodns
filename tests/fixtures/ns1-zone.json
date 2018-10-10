@@ -1,0 +1,160 @@
+{
+  "zone": "unit.tests",
+  "records": [
+    {
+      "domain": "_srv._tcp.unit.tests",
+      "short_answers": [
+        "10 20 30 foo-1.unit.tests.",
+        "12 20 30 foo-2.unit.tests."
+      ],
+      "ttl": 600,
+      "tier": 1,
+      "type": "SRV"
+    },
+    {
+      "domain": "aaaa.unit.tests",
+      "short_answers": [
+        "2601:644:500:e210:62f8:1dff:feb8:947a"
+      ],
+      "ttl": 600,
+      "tier": 1,
+      "type": "AAAA"
+    },
+    {
+      "domain": "cname.unit.tests",
+      "short_answers": [
+        "unit.tests."
+      ],
+      "ttl": 300,
+      "tier": 1,
+      "type": "CNAME"
+    },
+    {
+      "domain": "included.unit.tests",
+      "short_answers": [
+        "unit.tests."
+      ],
+      "ttl": 3600,
+      "tier": 1,
+      "type": "CNAME"
+    },
+    {
+      "domain": "mx.unit.tests",
+      "short_answers": [
+        "10 smtp-4.unit.tests.",
+        "20 smtp-2.unit.tests.",
+        "30 smtp-3.unit.tests.",
+        "40 smtp-1.unit.tests."
+      ],
+      "ttl": 300,
+      "tier": 1,
+      "type": "MX"
+    },
+    {
+      "domain": "naptr.unit.tests",
+      "short_answers": [
+        "10 100 S SIP+D2U !^.*$!sip:info@bar.example.com! .",
+        "100 100 U SIP+D2U !^.*$!sip:info@bar.example.com! ."
+      ],
+      "ttl": 600,
+      "tier": 1,
+      "type": "NAPTR"
+    },
+    {
+      "domain": "unit.tests",
+      "short_answers": [
+        "1.2.3.4",
+        "1.2.3.5",
+        "3.2.3.4",
+        "3.2.3.5",
+        "2.2.3.4",
+        "2.2.3.5",
+        "5.2.3.4",
+        "5.2.3.5",
+        "4.2.3.4",
+        "4.2.3.5"
+      ],
+      "ttl": 300,
+      "tier": 3,
+      "type": "A"
+    },
+    {
+      "domain": "unit.tests",
+      "short_answers": [
+        "0 issue ca.unit.tests"
+      ],
+      "ttl": 3600,
+      "tier": 1,
+      "type": "CAA"
+    },
+    {
+      "domain": "unit.tests",
+      "short_answers": [
+        "dns1.p01.nsone.net",
+        "dns2.p01.nsone.net",
+        "dns3.p01.nsone.net",
+        "dns4.p01.nsone.net"
+      ],
+      "ttl": 3600,
+      "tier": 1,
+      "type": "NS"
+    },
+    {
+      "domain": "ptr.unit.tests",
+      "short_answers": [
+        "foo.bar.com."
+      ],
+      "ttl": 300,
+      "tier": 1,
+      "type": "PTR"
+    },
+    {
+      "domain": "spf.unit.tests",
+      "short_answers": [
+        "v=spf1 ip4:192.168.0.1/16-all"
+      ],
+      "ttl": 600,
+      "tier": 1,
+      "type": "SPF"
+    },
+    {
+      "domain": "sub.unit.tests",
+      "short_answers": [
+        "6.2.3.4.",
+        "7.2.3.4."
+      ],
+      "ttl": 3600,
+      "tier": 1,
+      "type": "NS"
+    },
+    {
+      "domain": "txt.unit.tests",
+      "short_answers": [
+        "Bah bah black sheep",
+        "have you any wool.",
+        "v=DKIM1;k=rsa;s=email;h=sha256;p=A/kinda+of/long/string+with+numb3rs"
+      ],
+      "ttl": 600,
+      "tier": 1,
+      "type": "TXT"
+    },
+    {
+      "domain": "www.unit.tests",
+      "short_answers": [
+        "2.2.3.6"
+      ],
+      "ttl": 300,
+      "tier": 1,
+      "type": "A"
+    },
+    {
+      "domain": "www.sub.unit.tests",
+      "short_answers": [
+        "2.2.3.6"
+      ],
+      "ttl": 300,
+      "tier": 1,
+      "type": "A"
+    }
+  ]
+}
