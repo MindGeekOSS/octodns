@@ -335,6 +335,8 @@ class Ns1Provider(BaseProvider):
     def _apply_Create(self, change):
         rec = change.new
         zone = rec.zone.name.rstrip('.')
+        if rec._type == 'NS' and rec.name == '':
+            return self._apply_Update(change)
         domain = rec.fqdn.rstrip('.')
         params = self._params_for(rec)
         self.log.debug('_apply_Create: creating record %s/%s/%s: %s',

@@ -251,12 +251,12 @@ class Manager(object):
         for zone_name, config in zones:
             self.log.info('sync:   zone=%s', zone_name)
             try:
-                sources = config['sources']
+                sources = set(config['sources'])
             except KeyError:
                 raise Exception('Zone {} is missing sources'.format(zone_name))
 
             try:
-                targets = config['targets']
+                targets = set(config['targets'])
             except KeyError:
                 raise Exception('Zone {} is missing targets'.format(zone_name))
             if eligible_targets:
